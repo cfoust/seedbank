@@ -38,4 +38,4 @@ All local archives are saved in the (`.gitignore`d) `archives` folder in the see
 
 ## Why target Python2?
 
-Python3 opens stdout and stdin in Unicode mode. WTF Python 3?
+Python3 opens stdout and stdin in Unicode mode. WTF Python3? Seedbank relies on click, which [has a page](http://click.pocoo.org/5/python3/) describing why Python3 support breaks easily.
