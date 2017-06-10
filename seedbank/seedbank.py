@@ -2,7 +2,8 @@
 This module defines a class called `seedbank` that supports
 all of the methods necessary to implement the CLI.
 """
-import os, git, boto3, json, shutil, zipfile
+import os, git, boto3, shutil, zipfile, datetime, hashlib
+import jsondate as json
 
 # TODO: generate this more dynamically
 DEFAULT_CONFIG = {
@@ -19,6 +20,11 @@ def to_json(obj):
     return json.dumps(obj, sort_keys=True, indent=4)
 
 class Path:
+    """
+    Offer simple extractions over paths so as to not
+    require string additions everywhere.
+    """
+
     def __init__(self, path):
         self.path = os.path.abspath(path)
 
@@ -87,13 +93,22 @@ class Seedbank:
             raise Exception('Seedbank repository already ' +
                             'initialized: %s" % self.path')
 
-        # Initialize a repository with an empty config
+        # Initialize a repository
         repo = git.Repo.init(self.path.root())
         # TODO: also include meta.json file with information
         # about the repository's creation date
+
         conf_name = self.path.relative('seedbank.json')
         with open(conf_name, 'w+') as config:
             config.write(to_json(DEFAULT_CONFIG))
+
+        gitignore_name = self.path.relative('.gitignore')
+        with open(gitignore_name, 'w+') as gitignore:
+            # Just ignore the `local` directory, which
+            # has any archives created locally or
+            # downloaded
+            gitignore.write('local')
+
         repo.index.add(['seedbank.json'])
         repo.index.commit('SEEDBANK INITIAL COMMIT')
         print 'Seedbank initialized at ' + self.path.root()
@@ -111,7 +126,7 @@ class Seedbank:
 
         self.repo = git.Repo(self.path.root())
         self.client = boto3.client('glacier')
-    
+
     def create_archive(self, path):
         """
         Create an archive from the given directory.
@@ -125,21 +140,22 @@ class Seedbank:
         path -- Path to directory to archive.
         """
         path = Path(path)
-        print "Building archive of '%s'" % path.root()
+        print "Building archive of %s" % path.root()
 
         # TODO: actually calculate uid somehow
         # hashing the current time is probably ok
-        uid = 'deadbeef'
+        uid = hashlib.sha256(str(datetime.datetime.now())).hexdigest()
         zip_path = self.path.relative('local/' + uid)
 
         # Build the archive
+        # TODO: switch to using a logger to make this print
         shutil.make_archive(zip_path, 'zip', path.root())
 
         # Extract a file list from the archive
         file_list = []
-        with zipfile.ZipFile(zip_path + '.zip', 'r') as archive:
-            for item in archive.infolist():
-                file_list.append(item.filename)
+        archive = zipfile.ZipFile(zip_path + '.zip', 'a')
+        for item in archive.infolist():
+            file_list.append(item.filename)
 
         # Get the text of the description if it exists
         description = ''
@@ -147,3 +163,22 @@ class Seedbank:
         if os.path.exists(description_path):
             description = open(description_path, 'r').read()
             print 'Using archive description %s' % description_path
+
+        meta_path = self.path.relative('archives/%s.json' % uid)
+
+        # Store information about the archive
+        meta_obj = {
+                    'uid'         : uid,
+                    'create_time' : datetime.datetime.utcnow(),
+                    'description' : description,
+                    'file_list'   : file_list
+                }
+        meta_obj = to_json(meta_obj)
+
+        # Write archive metadata to both the repo and the
+        # archive itself
+        with open(meta_path, 'w') as meta:
+            meta.write(meta_obj)
+        archive.write(meta_path, 'info.json')
+        print 'Archive %s of %s created.' % (uid[:8], path.root())
+

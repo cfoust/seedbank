@@ -10,8 +10,9 @@ setup(
     license='MIT',
     packages=find_packages(exclude=['seedbank']),
     install_requires=[
+        'GitPython',
         'boto3', 
         'click',
-        'GitPython'
+        'jsondate'
     ]
 )

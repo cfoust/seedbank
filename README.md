@@ -25,7 +25,7 @@ Using provided archive description '~/somedir/description.md'.
 ```
 and then some time later...
 ```
-Archive [uid] (~/somedir) created.
+Archive [uid] for ~/somedir created.
 ```
 
 `sb list [-n N]` lists all of your archives in chronological order. The `-n` option shows only the last `N` recent archives. It also warns you about archives that have been created, but not uploaded.
