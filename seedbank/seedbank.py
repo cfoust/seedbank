@@ -62,6 +62,7 @@ class Archive:
         self.uid = make_now_hash()
         self.create_time = datetime.datetime.now()
         self.path = None
+        self.size = 0
         self.file_list = []
         self.aws_response = {}
 
@@ -80,6 +81,7 @@ class Archive:
         archive.uid = archive_obj['uid']
         archive.file_list = archive_obj['file_list']
         archive.aws_response = archive_obj['aws_response']
+        archive.size = archive_obj['size']
         return archive
 
     def to_file(self, file_path):
@@ -96,6 +98,7 @@ class Archive:
         archive_obj['uid']         = self.uid
         archive_obj['file_list']   = self.file_list
         archive_obj['aws_response']= self.aws_response
+        archive_obj['size']        = self.size
         open(file_path, 'w').write(to_json(archive_obj))
 
     def get_meta(self, path):
@@ -377,15 +380,15 @@ class Seedbank:
         print "Building archive of %s" % path.root()
 
         archive = Archive()
-        zip_path = self.path.relative('local/' + archive.uid)
+        meta_path, local_path = self.get_archive_paths(archive)
 
         # Build the archive
         # TODO: switch to using a logger to make this print
-        shutil.make_archive(zip_path, 'zip', path.root())
+        shutil.make_archive(local_path[:-4], 'zip', path.root())
 
         # Extract a file list from the archive
         file_list = []
-        zip_archive = zipfile.ZipFile(zip_path + '.zip', 'a')
+        zip_archive = zipfile.ZipFile(local_path, 'a')
         for item in zip_archive.infolist():
             file_list.append(item.filename)
 
@@ -396,12 +399,13 @@ class Seedbank:
             description = open(description_path, 'r').read()
             print 'Using archive description %s' % description_path
 
-        meta_path = self.path.relative('archives/%s.json' % archive.uid)
-
         # Store information about the archive
         archive.create_time = datetime.datetime.utcnow()
         archive.description = description
         archive.file_list   = file_list
+        # Note that archive.size is the size of the archive
+        # in bytes BEFORE adding the meta file
+        archive.size = os.path.getsize(local_path)
 
         # Write archive metadata to both the repo and the
         # archive itself
