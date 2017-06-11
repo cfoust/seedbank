@@ -30,9 +30,9 @@ Archive [uid] for ~/somedir created.
 
 `sb list [-n N]` lists all of your archives in chronological order. The `-n` option shows only the last `N` recent archives. It also warns you about archives that have been created, but not uploaded.
 
-`sb upload {uid}` uploads an archive to Amazon Glacier.
+`sb upload {uid}` uploads an archive to Amazon Glacier. Automatically chooses between multipart and singlepart uploads.
 
-`sb download {uid}` downloads an archive.
+`sb download {uid}` initiates a retrieval from Glacier. This is not currently implemented, but ideally you could check (with `sb check`) to see the status of any outstanding jobs.
 
 As with `git`, you do not have to provide the full uid in to reference an
 individual archive, but only enough bytes for the reference to be unambiguous.
