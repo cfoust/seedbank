@@ -10,6 +10,9 @@ DEFAULT_CONFIG = {
             'vault_name' : 'seedbank'
         }
 
+""" A megabyte multiplied by 2^3 (8MB). Used for multipart uploads."""
+PART_SIZE = 1048576 * pow(2, 3)
+
 def to_json(obj):
     """
     Convert a dictionary to pretty-printed JSON.
@@ -193,8 +196,6 @@ class MultipartUploader:
     upload.
     """
 
-    """ A megabyte multiplied by 2^3 (8MB). Used for multipart uploads."""
-    PART_SIZE = 1048576 * pow(2, 3)
 
     def __init__(self, client, archive, config, zip_path):
         """
@@ -228,7 +229,7 @@ class MultipartUploader:
         response = self.client.initiate_multipart_upload(
             vaultName=self.vault_name,
             archiveDescription=self.archive.uid,
-            partSize=str(self.PART_SIZE)
+            partSize=str(PART_SIZE)
         )
         self.upload_id = response.get('uploadId')
 
@@ -238,7 +239,7 @@ class MultipartUploader:
         Return True if we're done uploading, false otherwise.
         """
         current_byte = self.zip_file.tell()
-        end_byte = (current_byte + self.PART_SIZE) - 1
+        end_byte = (current_byte + PART_SIZE) - 1
         if end_byte > self.zip_file_size:
             end_byte = self.zip_file_size - 1
 
@@ -249,7 +250,7 @@ class MultipartUploader:
                 vaultName=self.vault_name,
                 uploadId=self.upload_id,
                 range=byte_range,
-                body=self.zip_file.read(self.PART_SIZE)
+                body=self.zip_file.read(PART_SIZE)
         )
         # TODO: error check `response`
         return self.zip_file.tell() == self.zip_file_size
@@ -432,22 +433,46 @@ class Seedbank:
         if not archive:
             raise Exception('No archive found for prefix %s' % uid_prefix)
 
-        meta_path = archive.get_meta(self.path)
-        local_path = archive.get_local(self.path)
+        return archive
+
+    def get_archive_paths(self, archive):
+        """
+        Return the resolved paths for an archive's .json and .zip file.
+        """
+        return (archive.get_meta(self.path), archive.get_local(self.path))
+
+    def upload_archive(self, uid_prefix):
+        """
+        Upload an archive specified from a uid prefix.
+        Chooses multipart if the size is greater than two times PART_SIZE.
+        """
+        archive = self.resolve_archive(uid_prefix)
+        meta_path, local_path = self.get_archive_paths(archive)
 
         if not os.path.exists(local_path):
             raise Exception('Cannot upload archive %s because it does not exist on this system' % archive.uid)
 
-        return (archive, meta_path, local_path)
+        # Decide whether we should do a single-part or multipart upload
+        size = os.path.getsize(local_path)
+        response = None
+        if size > 2 * PART_SIZE:
+            response = self.upload_multipart_archive(archive)
+        else:
+            response = self.upload_whole_archive(archive)
+        
+        archive.aws_response = response
 
-    def upload_whole_archive(self, uid_prefix):
+        # Overwrite the previous .json file describing this archive
+        archive.to_file(meta_path)
+
+    def upload_whole_archive(self, archive):
         """
         Upload an archive to Amazon Glacier in a single request.
 
         Keyword arguments:
-        uid_prefix -- Prefix of an existing archive.
+        archive -- Archive object
         """
-        archive, meta_path, local_path = self.resolve_archive(uid_prefix)
+        meta_path, local_path = self.get_archive_paths(archive)
 
         vault_name = self.config.get('vault_name')
         zip_file = open(local_path, 'r')
@@ -458,20 +483,17 @@ class Seedbank:
             archiveDescription=archive.uid,
             body=zip_file
         )
-        archive.aws_response = response
+        return response
 
-        # Overwrite the previous .json file describing this archive
-        archive.to_file(meta_path)
-
-    def upload_multipart_archive(self, uid_prefix):
+    def upload_multipart_archive(self, archive):
         """
         Upload an archive to Amazon Glacier by splitting the zip
         into parts.
 
         Keyword arguments:
-        uid_prefix -- Prefix of an existing archive.
+        archive -- Archive object
         """
-        archive, meta_path, local_path = self.resolve_archive(uid_prefix)
+        meta_path, local_path = self.get_archive_paths(archive)
         vault_name = self.config.get('vault_name')
 
         uploader = MultipartUploader(
@@ -485,10 +507,4 @@ class Seedbank:
         uploader.open()
         
         # Upload the chunks
-        response = uploader.upload()
-
-        # TODO: check for errors
-        archive.aws_response = response
-
-        # Overwrite the previous .json file describing this archive
-        archive.to_file(meta_path)
+        return uploader.upload()
