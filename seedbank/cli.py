@@ -68,3 +68,22 @@ def create(path):
         exit(1)
 
     bank.create_archive(path)
+
+@cli.command()
+@click.argument('uid_prefix')
+def upload(uid_prefix):
+    """
+    Upload an archive.
+    """
+    bank = load_seedbank()
+
+    archive = bank.resolve_archive(uid_prefix)
+
+    if not archive:
+        click.echo('Archive specified by %s does not exist.' % uid_prefix)
+        exit(1)
+    # Ask the user to make sure they want to reupload an archive.
+    if archive.is_uploaded():
+        click.confirm('The archive %s already exists remotely. Reupload it?' % archive.uid, abort=True)
+
+    bank.upload_archive(uid_prefix)

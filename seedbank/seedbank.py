@@ -5,6 +5,7 @@ all of the methods necessary to implement the CLI.
 import os, git, boto3, shutil, zipfile, datetime, hashlib
 import jsondate as json
 from botocore.utils import calculate_tree_hash
+from .constants import *
 
 DEFAULT_CONFIG = {
             'vault_name' : 'seedbank'
@@ -65,6 +66,7 @@ class Archive:
         self.size = 0
         self.file_list = []
         self.aws_response = {}
+        self.remote_id = ""
 
     @staticmethod
     def from_file(file_path):
@@ -82,6 +84,7 @@ class Archive:
         archive.file_list = archive_obj['file_list']
         archive.aws_response = archive_obj['aws_response']
         archive.size = archive_obj['size']
+        archive.remote_id = archive_obj['remote_id']
         return archive
 
     def to_file(self, file_path):
@@ -99,7 +102,11 @@ class Archive:
         archive_obj['file_list']   = self.file_list
         archive_obj['aws_response']= self.aws_response
         archive_obj['size']        = self.size
+        archive_obj['remote_id']   = self.remote_id
         open(file_path, 'w').write(to_json(archive_obj))
+    
+    def is_uploaded(self):
+        return self.remote_id != ''
 
     def get_meta(self, path):
         """
@@ -465,9 +472,16 @@ class Seedbank:
             response = self.upload_whole_archive(archive)
         
         archive.aws_response = response
+        archive.remote_id = response['archiveId']
 
         # Overwrite the previous .json file describing this archive
         archive.to_file(meta_path)
+
+        self.repo.index.add([meta_path])
+        commit_text = UPLOAD_COMMIT % (archive.uid, archive.aws_response['location'])
+        if len(archive.description) > 0:
+            commit_text += UPLOAD_COMMIT_DESCRIPTION % archive.description
+        self.repo.index.commit(commit_text)
 
     def upload_whole_archive(self, archive):
         """
