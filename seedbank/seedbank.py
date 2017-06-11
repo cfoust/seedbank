@@ -104,7 +104,7 @@ class Archive:
         archive_obj['size']        = self.size
         archive_obj['remote_id']   = self.remote_id
         open(file_path, 'w').write(to_json(archive_obj))
-    
+
     def is_uploaded(self):
         return self.remote_id != ''
 
@@ -390,13 +390,25 @@ class Seedbank:
         meta_path, local_path = self.get_archive_paths(archive)
 
         # Build the archive
-        # TODO: switch to using a logger to make this print
-        shutil.make_archive(local_path[:-4], 'zip', path.root())
+        zip_file = zipfile.ZipFile(
+                local_path,
+                'w',
+                zipfile.ZIP_DEFLATED,
+                allowZip64=True)
+
+        # Walk through the directory we want to create an archive for.
+        for root, _, filenames in os.walk(path.root()):
+            for name in filenames:
+                # The absolute path of the file on this filesystem
+                real_path = os.path.join(root, name)
+                # The destination path to the file inside the zip
+                relative_path = real_path[len(path.root()):]
+                zip_file.write(real_path, relative_path)
+                print 'Wrote %s' % relative_path
 
         # Extract a file list from the archive
         file_list = []
-        zip_archive = zipfile.ZipFile(local_path, 'a')
-        for item in zip_archive.infolist():
+        for item in zip_file.infolist():
             file_list.append(item.filename)
 
         # Get the text of the description if it exists
@@ -417,7 +429,8 @@ class Seedbank:
         # Write archive metadata to both the repo and the
         # archive itself
         archive.to_file(meta_path)
-        zip_archive.write(meta_path, 'info.json')
+        zip_file.write(meta_path, 'info.json')
+        zip_file.close()
 
         self.manager.add(archive)
         print 'Archive %s of %s created.' % (archive.uid[:8], path.root())
@@ -470,7 +483,7 @@ class Seedbank:
             response = self.upload_multipart_archive(archive)
         else:
             response = self.upload_whole_archive(archive)
-        
+
         archive.aws_response = response
         archive.remote_id = response['archiveId']
 
@@ -523,6 +536,6 @@ class Seedbank:
 
         # Open the zip file
         uploader.open()
-        
+
         # Upload the chunks
         return uploader.upload()
