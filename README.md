@@ -35,9 +35,9 @@ Archive [uid] for ~/somedir created.
 `sb download {uid}` downloads an archive.
 
 As with `git`, you do not have to provide the full uid in to reference an
-individual archive, but only enough bytes for the reference to be ambiguous.
+individual archive, but only enough bytes for the reference to be unambiguous.
 
-All local archives are saved in the (`.gitignore`d) `archives` folder in the seebank repository.
+All local archives are saved in the (`.gitignore`d) `local` folder in the seebank repository.
 
 ## Why target Python2?
 

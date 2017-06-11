@@ -1,5 +1,6 @@
-archives
-test.py
-*egg-info
-dist
 **.pyc
+*egg-info
+archives
+build
+dist
+test.py
