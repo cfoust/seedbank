@@ -37,8 +37,14 @@ def list():
     """
     bank = load_seedbank()
 
-    # TODO: pretty-print a list of archives
-    click.echo(bank.get_list())
+    archives = bank.get_list()
+    archives.sort(key=lambda archive: archive.create_time)
+    for archive in archives:
+        description = archive.description[:40]
+        description = description.replace('\n','')
+        if len(description) == 0:
+            description = '[No description provided]'
+        click.echo('%s %s' % (archive.uid[:8], description))
 
 @cli.command()
 def init():
@@ -87,3 +93,11 @@ def upload(uid_prefix):
         click.confirm('The archive %s already exists remotely. Reupload it?' % archive.uid, abort=True)
 
     bank.upload_archive(uid_prefix)
+
+@cli.command()
+@click.argument('uid_prefix')
+def download(uid_prefix):
+    """
+    Initiate an archive retrieval.
+    """
+    click.echo('Not yet implemented.')

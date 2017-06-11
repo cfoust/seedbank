@@ -27,12 +27,13 @@ and then some time later...
 ```
 Archive [uid] for ~/somedir created.
 ```
+Notice that the above refers to the provided description for the archive. If you place a `description.md` (with that exact name, no capital letters) in the target folder for archive creation, it will be included with the archive's metadata. That is, after all, the whole point of seedbank. Descriptions are not required, though, and the archive's file list will still be included.
 
 `sb list [-n N]` lists all of your archives in chronological order. The `-n` option shows only the last `N` recent archives. It also warns you about archives that have been created, but not uploaded.
 
 `sb upload {uid}` uploads an archive to Amazon Glacier. Automatically chooses between multipart and singlepart uploads.
 
-`sb download {uid}` initiates a retrieval from Glacier. This is not currently implemented, but ideally you could check (with `sb check`) to see the status of any outstanding jobs.
+NOT YET IMPLEMENTED: `sb download {uid}` initiates a retrieval from Glacier. Ideally you could check (with `sb check`) to see the status of any outstanding jobs.
 
 As with `git`, you do not have to provide the full uid in to reference an
 individual archive, but only enough bytes for the reference to be unambiguous.
