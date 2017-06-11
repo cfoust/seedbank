@@ -8,11 +8,15 @@ setup(
     author='Caleb Foust',
     author_email='cfoust@sqweebloid.com',
     license='MIT',
-    packages=find_packages(exclude=['seedbank']),
+    packages=find_packages(),
     install_requires=[
         'GitPython',
         'boto3', 
         'click',
         'jsondate'
-    ]
+    ],
+    entry_points="""
+        [console_scripts]
+        sb=seedbank.cli:cli
+        """,
 )
