@@ -4,6 +4,7 @@ all of the methods necessary to implement the CLI.
 """
 import os, git, boto3, shutil, zipfile, datetime, hashlib
 import jsondate as json
+from botocore.utils import calculate_tree_hash
 
 DEFAULT_CONFIG = {
             'vault_name' : 'seedbank'
@@ -59,6 +60,7 @@ class Archive:
         self.create_time = datetime.datetime.now()
         self.path = None
         self.file_list = []
+        self.aws_response = {}
 
     @staticmethod
     def from_file(file_path):
@@ -74,6 +76,7 @@ class Archive:
         archive.description = archive_obj['description']
         archive.uid = archive_obj['uid']
         archive.file_list = archive_obj['file_list']
+        archive.aws_response = archive_obj['aws_response']
         return archive
 
     def to_file(self, file_path):
@@ -89,7 +92,22 @@ class Archive:
         archive_obj['description'] = self.description
         archive_obj['uid']         = self.uid
         archive_obj['file_list']   = self.file_list
+        archive_obj['aws_response']= self.aws_response
         open(file_path, 'w').write(to_json(archive_obj))
+
+    def get_meta(self, path):
+        """
+        Given a root Path, return this archive's metadata .json
+        file path.
+        """
+        return path.relative('archives/%s.json' % self.uid)
+
+    def get_local(self, path):
+        """
+        Given a root Path, return this archive's .zip file
+        path locally. May or may not exist.
+        """
+        return path.relative('local/%s.zip' % self.uid)
 
 class ArchiveManager:
     """
@@ -140,6 +158,9 @@ class ArchiveManager:
         """
         Get an archive by the prefix of its uid.
         Raises and exception if more than one match.
+
+        Keyword arguments:
+        uid_prefix -- Prefix of an existing archive.
         """
         matches = [x for x in self.archives if x.uid.startswith(uid_prefix)]
         if len(matches) > 1:
@@ -149,6 +170,107 @@ class ArchiveManager:
             return None
 
         return matches[0]
+
+class ConfigManager:
+    def __init__(self, config_path):
+        self.path = config_path
+
+    def parse_config(self):
+        """
+        Parse a JSON config.
+
+        Keyword arguments:
+        config_path -- Path to a seedbank.json
+        """
+        self.data = json.loads(open(self.path, 'r').read())
+
+    def get(self, key):
+        return self.data[key]
+
+class MultipartUploader:
+    """
+    Convenience class for handling an individual multipart
+    upload.
+    """
+
+    """ A megabyte multiplied by 2^3 (8MB). Used for multipart uploads."""
+    PART_SIZE = 1048576 * pow(2, 3)
+
+    def __init__(self, client, archive, config, zip_path):
+        """
+        Initialize a MultipartUploader instance.
+
+        Keyword arguments:
+        client   -- boto3 Glacier client
+        archive  -- Archive object to upload
+        config   -- ConfigManager object
+        zip_path -- Path to archive's zip
+        """
+        self.client   = client
+        self.archive  = archive
+        self.config   = config
+        self.zip_path = zip_path
+
+    def open(self):
+        """
+        Open the zip file for reading and get any config
+        vars we might need a lot.
+        """
+        self.zip_file = open(self.zip_path, 'r')
+        self.zip_file_size = os.path.getsize(self.zip_path)
+        self.vault_name = self.config.get('vault_name')
+
+    def start_upload(self):
+        """
+        Start the multipart upload.
+        """
+        # Start a multipart upload
+        response = self.client.initiate_multipart_upload(
+            vaultName=self.vault_name,
+            archiveDescription=self.archive.uid,
+            partSize=str(self.PART_SIZE)
+        )
+        self.upload_id = response.get('uploadId')
+
+    def upload_part(self):
+        """
+        Upload the next part of the archive.
+        Return True if we're done uploading, false otherwise.
+        """
+        current_byte = self.zip_file.tell()
+        end_byte = (current_byte + self.PART_SIZE) - 1
+        if end_byte > self.zip_file_size:
+            end_byte = self.zip_file_size - 1
+
+        format_tuple = (current_byte, end_byte, self.zip_file_size)
+        byte_range = "bytes %d-%d/%d" % format_tuple
+
+        response = self.client.upload_multipart_part(
+                vaultName=self.vault_name,
+                uploadId=self.upload_id,
+                range=byte_range,
+                body=self.zip_file.read(self.PART_SIZE)
+        )
+        # TODO: error check `response`
+        return self.zip_file.tell() == self.zip_file_size
+
+    def upload(self):
+        """
+        Upload the archive to Amazon Glacier by chunking it.
+        """
+        self.start_upload()
+        while not self.upload_part():
+            continue
+        # Move to the front of the file to calculate its hash
+        self.zip_file.seek(0)
+        zip_hash = calculate_tree_hash(self.zip_file)
+        response = self.client.complete_multipart_upload(
+                vaultName=self.vault_name,
+                uploadId=self.upload_id,
+                archiveSize=str(self.zip_file_size),
+                checksum=zip_hash
+        )
+        return response
 
 class Seedbank:
     def __init__(self, path):
@@ -234,6 +356,9 @@ class Seedbank:
         self.manager = ArchiveManager(self.path.relative('archives'))
         self.manager.parse_files()
 
+        self.config = ConfigManager(self.path.relative('seedbank.json'))
+        self.config.parse_config()
+
     def create_archive(self, path):
         """
         Create an archive from the given directory.
@@ -241,6 +366,8 @@ class Seedbank:
         information about the contents of the archive.
 
         A file list is included by default.
+
+        Returns the new archive's uid.
 
         Keyword arguments:
         path -- Path to directory to archive.
@@ -283,10 +410,85 @@ class Seedbank:
         self.manager.add(archive)
         print 'Archive %s of %s created.' % (archive.uid[:8], path.root())
 
+        return archive.uid
+
     def get_list(self):
         """Get the list of `Archive` instances that this controls."""
         return self.manager.get_list()
 
-    def upload_archive(self, uid_prefix):
+    def resolve_archive(self, uid_prefix):
+        """
+        Attempts to get an archive via a uid_prefix.
+        Returns a tuple with the following:
+            -- Archive object for archive
+            -- Path to archive's .json file
+            -- Path to archive's .zip file
+
+        Keyword arguments:
+        uid_prefix -- Prefix of an existing archive.
+        """
         archive = self.manager.get_archive(uid_prefix)
-        print archive
+
+        if not archive:
+            raise Exception('No archive found for prefix %s' % uid_prefix)
+
+        meta_path = archive.get_meta(self.path)
+        local_path = archive.get_local(self.path)
+
+        if not os.path.exists(local_path):
+            raise Exception('Cannot upload archive %s because it does not exist on this system' % archive.uid)
+
+        return (archive, meta_path, local_path)
+
+    def upload_whole_archive(self, uid_prefix):
+        """
+        Upload an archive to Amazon Glacier in a single request.
+
+        Keyword arguments:
+        uid_prefix -- Prefix of an existing archive.
+        """
+        archive, meta_path, local_path = self.resolve_archive(uid_prefix)
+
+        vault_name = self.config.get('vault_name')
+        zip_file = open(local_path, 'r')
+
+        # Upload the archive to the vault
+        response = self.client.upload_archive(
+            vaultName=vault_name,
+            archiveDescription=archive.uid,
+            body=zip_file
+        )
+        archive.aws_response = response
+
+        # Overwrite the previous .json file describing this archive
+        archive.to_file(meta_path)
+
+    def upload_multipart_archive(self, uid_prefix):
+        """
+        Upload an archive to Amazon Glacier by splitting the zip
+        into parts.
+
+        Keyword arguments:
+        uid_prefix -- Prefix of an existing archive.
+        """
+        archive, meta_path, local_path = self.resolve_archive(uid_prefix)
+        vault_name = self.config.get('vault_name')
+
+        uploader = MultipartUploader(
+                self.client,
+                archive,
+                self.config,
+                local_path
+        )
+
+        # Open the zip file
+        uploader.open()
+        
+        # Upload the chunks
+        response = uploader.upload()
+
+        # TODO: check for errors
+        archive.aws_response = response
+
+        # Overwrite the previous .json file describing this archive
+        archive.to_file(meta_path)
