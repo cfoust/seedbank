@@ -38,8 +38,17 @@ NOT YET IMPLEMENTED: `sb download {uid}` initiates a retrieval from Glacier. Ide
 As with `git`, you do not have to provide the full uid in to reference an
 individual archive, but only enough bytes for the reference to be unambiguous.
 
-All local archives are saved in the (`.gitignore`d) `local` folder in the seebank repository.
+All local archives are saved in the (`.gitignore`d) `local` folder in the seedbank repository.
 
-## Why target Python2?
+## Configuration
 
-Python3 opens stdout and stdin in Unicode mode. WTF Python3? Seedbank relies on click, which [has a page](http://click.pocoo.org/5/python3/) describing why Python3 support breaks easily.
+It's tedious to have to keep your current working directory in the seedbank repo while you archive other folders, so seedbank supports setting a default seedbank repository for the system.
+
+You can create a file called `~/.sbrc.json` with the following contents:
+```
+{
+  "default_repo" : "~/seedbank"
+}
+```
+
+Seedbank will attempt to load this repository when you use commands like `sb list` instead of defaulting to the current directory. In the future we'd like to create a way to override this with `--here`, but that's not currently implemented.

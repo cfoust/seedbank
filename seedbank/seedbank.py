@@ -36,7 +36,9 @@ class Path:
     """
 
     def __init__(self, path):
-        self.path = os.path.abspath(path)
+        # Expand any uses of ~ and transform to absolute
+        self.path = os.path.expanduser(path)
+        self.path = os.path.abspath(self.path)
 
         if not self.path.endswith('/'):
             self.path += '/'
@@ -46,6 +48,12 @@ class Path:
         Return the root path this object was initialized with.
         """
         return self.path
+    
+    def exists(self):
+        """
+        Check whether the directory at the root path exists.
+        """
+        return os.path.exists(self.root())
 
     def relative(self, path):
         """
@@ -314,6 +322,7 @@ class Seedbank:
         configuration file.
 
         """
+        print self.path.root()
         # TODO: Make this a bit more elegant
         git = self.path.relative('.git')
         conf = self.path.relative('seedbank.json')
