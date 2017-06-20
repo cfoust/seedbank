@@ -322,7 +322,6 @@ class Seedbank:
         configuration file.
 
         """
-        print self.path.root()
         # TODO: Make this a bit more elegant
         git = self.path.relative('.git')
         conf = self.path.relative('seedbank.json')
@@ -355,7 +354,10 @@ class Seedbank:
             # downloaded
             gitignore.write('local')
 
-        repo.index.add(['seedbank.json'])
+        repo.index.add([
+            '.gitignore',
+            'seedbank.json'
+        ])
         repo.index.commit('SEEDBANK INITIAL COMMIT')
         print 'Seedbank initialized at ' + self.path.root()
 

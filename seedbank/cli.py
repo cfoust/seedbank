@@ -72,9 +72,7 @@ def load_sbrc():
         if os.path.isfile(location):
             manager = seedbank.ConfigManager(location)
             manager.parse_config()
-            print(location, manager)
             return manager
-        print location + ' does not exist'
     return None
 
 @click.group()
