@@ -22,18 +22,18 @@ def load_seedbank():
     # Attempt to load sbrc
     config = load_sbrc()
 
-    # First check to see if we can load the default repo
-    bank = load_bank_from_sbrc(config)
+    # Try to load the seedbank from the current directory.
+    # If it's not initialized, look in the sbrc for a default
+    # repository.
+    bank = init_seedbank()
 
-    # Otherwise just use the current working directory
-    if not bank:
-        bank = init_seedbank()
-
-    # Don't do anything if the repo isn't initialized
     if not bank.is_repo_initialized():
-        click.echo('A seedbank repo is not initialized here.')
-        click.echo('Type `sb init` to create one.')
-        exit(1)
+        bank = load_bank_from_sbrc(config)
+
+        if not bank:
+            click.echo('A seedbank repo is not initialized here.')
+            click.echo('Type `sb init` to create one.')
+            exit(1)
 
     bank.connect()
     return bank
@@ -57,7 +57,14 @@ def load_bank_from_sbrc(config):
     if not default_repo_path.exists():
         return None
 
-    return init_seedbank(default_repo_path.root())
+    bank = init_seedbank(default_repo_path.root())
+
+    # Don't return an uninitialized seedbank
+    if not bank.is_repo_initialized():
+        print 'Repo at %s specified in .sbrc.json not initialized.' % default_repo
+        return None
+
+    return bank
 
 def load_sbrc():
     """
@@ -69,10 +76,14 @@ def load_sbrc():
         home_dir_path.relative('.sbrc.json')
     ]
     for location in locations:
-        if os.path.isfile(location):
-            manager = seedbank.ConfigManager(location)
-            manager.parse_config()
-            return manager
+        if not os.path.isfile(location): 
+            continue
+
+        # Load the config if the config file exists.
+        manager = seedbank.ConfigManager(location)
+        manager.parse_config()
+        return manager
+
     return None
 
 @click.group()
@@ -91,7 +102,12 @@ def list():
     archives.sort(key=lambda archive: archive.create_time)
     for archive in archives:
         description = archive.description[:40]
-        description = description.replace('\n','')
+        
+        # Remove Windows-style line endings
+        description = description.replace('\r','')
+
+        description = description[:description.find('\n')]
+
         if len(description) == 0:
             description = '[No description provided]'
         click.echo('%s %s' % (archive.uid[:8], description))
